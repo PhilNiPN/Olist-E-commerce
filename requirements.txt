@@ -1,0 +1,4 @@
+# required packages for the pipeline
+
+psycopg2>=2.9.0
+python-dotenv

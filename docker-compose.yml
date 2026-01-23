@@ -19,5 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
+  pipeline:
+   build:
+    context: .
+    dockerfile: docker/bronze-pipeline/dockerfile
+   container_name: olist_pipeline
+   depends_on:
+     db:
+       condition: service_healthy
+   environment:
+     POSTGRES_HOST: db
+     POSTGRES_USER: ${POSTGRES_USER:-admin}
+     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+     POSTGRES_DB: ${POSTGRES_DB:-olist_dw}
+     POSTGRES_PORT: 5432
+   volumes:
+     # mount data to update files without rebuilding the image
+     - ./Data:/app/Data
+     - ./src:/app/src
+
 volumes:
   postgres_data:

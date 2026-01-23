@@ -1,0 +1,19 @@
+# use official python image
+FROM python:3.9-slim
+
+# setting theworking directory
+WORKDIR /app
+
+# install dependencies
+RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
+
+# copy requirements file and install them
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# copy the rest of the application code
+COPY src/ ./src/
+COPY Data/ ./Data/
+
+# command to run the application when the container is started
+CMD ["python", "src/pipeline.py"]
