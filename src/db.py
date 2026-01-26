@@ -134,6 +134,10 @@ def load_csv_via_temp_table(conn, csv_path, table_name, snapshot_id, run_id):
             with open(abs_path, 'r', encoding='utf-8') as f:
                 cur.copy_expert(query, f)
 
+            # idempocency - clear existing data for this snapshot_id
+            query = sql.SQL("DELETE FROM {} WHERE _snapshot_id = %s;").format(target_table)
+            cur.execute(query, (snapshot_id,))
+
             # insert into target table
             query = sql.SQL("""
             INSERT INTO {} 
