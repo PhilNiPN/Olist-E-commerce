@@ -1,5 +1,5 @@
 """
-Laod raw csv into bronze layer
+Load raw csv into bronze layer
 """
 
 import json
@@ -11,7 +11,7 @@ from typing import List
 from config import RAW_DIR, FILE_TO_TABLE, manifest_path, latest_manifest_path
 from db import get_db_connection, load_csv_via_temp_table, LoadResult, health_check
 
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -93,6 +93,7 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
     
     run_id = run_id or str(uuid.uuid4())
     results = []
+    failed_tables = []
 
     # database health check
     status = health_check()
@@ -105,26 +106,41 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
         for filename, table_name in FILE_TO_TABLE.items():
             filepath = RAW_DIR / filename
             if not filepath.exists():
-                logger.warning(f"Skipping missing file: {filepath}")
+                logger.warning('file_missing', extra= {'filepath': str(filepath)})
                 continue
 
             # hash check
             file_meta = file_hashes.get(filename)
             if file_meta and not _file_changed(conn, filename, file_meta['hash']):
-                logger.info(f"Skipping unchanged file: {filename}")
+                logger.info('file_skipped', extra = {'filename': filename, 'reason': 'hash_unchanged'})
                 continue
+            
+            # this try/except will catch the exception, log it, and not stop the if loop.
+            try:
+                result = load_csv_via_temp_table(conn, str(filepath), table_name, snapshot_id, run_id)
+                results.append(result)
+                logger.info('table_loaded', extra= {'table': table_name, 'rows_inserted':result.rows_inserted})
 
-            result = load_csv_via_temp_table(conn, str(filepath), table_name, snapshot_id, run_id)
-            results.append(result)
-            logger.info(f"Loaded {table_name}: {result.rows_inserted} rows")
+                # record file manifest in database
+                if file_meta:
+                    _record_file_manifest(
+                        conn, snapshot_id, filename, file_meta['hash'], file_meta['size'], result.rows_inserted
+                    )
+            except Exception as e:
+                failed_tables.append(table_name)
+                logger.error('table_load_failed', extra={'table': table_name, 'error': str(e)})
+                # continue loading remaining tables
+                
+        run_status = 'failed' if failed_tables else 'success'
+        _complete_run(conn, run_id, run_status)
 
-            # record file manifest in database
-            if file_meta:
-                _record_file_manifest(
-                    conn, snapshot_id, filename, file_meta['hash'], file_meta['size'], result.rows_inserted
-                )
-
-        _complete_run(conn, run_id, 'success')    
+        if failed_tables:
+            logger.error('run_completed_with_failures', extra={
+                'run_id': run_id,
+                'failed_tables': failed_tables,
+                'succeeded': len(results),
+                'total_tables': len(FILE_TO_TABLE),
+            })    
 
     return LoadSummary(
         run_id=run_id,

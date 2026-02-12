@@ -47,9 +47,17 @@ def _source_changed() -> bool:
 
 def extract(force: bool = False) -> dict:
     """ downloads dataset, extracts files and returns manifest. """
-    if not force and not _source_changed():
-        logger.info('Kaggle source has not changed, skipping extraction')
-        return json.loads(latest_manifest_path().read_text())
+    # this try/except will proceed with download rather than failing, even if we cant check
+    try:
+        if not force and not _source_changed():
+            logger.info('extract_skipped', extra={'reason': 'source_unchanged'})
+            return json.loads(latest_manifest_path().read_text())
+    except Exception as e:
+        logger.warning('source_check_failed', extra={
+            'error': str(e), 
+            'action': 'proceeding_with_download',
+        })
+        # continue with download
     
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,9 +68,13 @@ def extract(force: bool = False) -> dict:
     api.dataset_download_files(KAGGLE_DATASET, path=RAW_DIR, unzip=False)
 
     # get the last updated timestamp for the manifest
-    dataset_list = api.dataset_list(search=KAGGLE_DATASET)
-    dataset = next((d for d in dataset_list if str(d) == KAGGLE_DATASET), None)
-    kaggle_last_updated = str(dataset.lastUpdated) if dataset else None
+    try:
+        dataset_list = api.dataset_list(search=KAGGLE_DATASET)
+        dataset = next((d for d in dataset_list if str(d) == KAGGLE_DATASET), None)
+        kaggle_last_updated = str(dataset.lastUpdated) if dataset else None
+    except Exception as e: 
+        logger.warning('kaggle_metadata_fecth_failed', extra={'error': str(e)})
+        kaggle_last_updated = None
 
     # hash the zip
     zip_path = next(RAW_DIR.glob('*.zip'))
@@ -86,6 +98,10 @@ def extract(force: bool = False) -> dict:
     }
 
     manifest_path(snapshot_id).write_text(json.dumps(manifest, indent=2))
+    logger.info('extract_completed', extra={
+        'snapshot_id': snapshot_id,
+        'file_count': len(manifest['files']),
+    })
     return manifest
 
 if __name__ == "__main__":
