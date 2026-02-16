@@ -56,7 +56,7 @@ def extract(force: bool = False) -> dict:
         logger.warning('source_check_failed', extra={
             'error': str(e), 
             'action': 'proceeding_with_download',
-        })
+        }, exc_info=True)
         # continue with download
     
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,7 @@ def extract(force: bool = False) -> dict:
         dataset = next((d for d in dataset_list if str(d) == KAGGLE_DATASET), None)
         kaggle_last_updated = str(dataset.lastUpdated) if dataset else None
     except Exception as e: 
-        logger.warning('kaggle_metadata_fecth_failed', extra={'error': str(e)})
+        logger.warning('kaggle_metadata_fecth_failed', extra={'error': str(e)}, exc_info =True)
         kaggle_last_updated = None
 
     # hash the zip

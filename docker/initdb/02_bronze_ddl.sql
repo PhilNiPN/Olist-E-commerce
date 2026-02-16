@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS bronze.orders (
     order_estimated_delivery_date TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_orders_snapshot ON bronze.orders(_snapshot_id);
 
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS bronze.order_items (
     freight_value TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_order_items_snapshot ON bronze.order_items(_snapshot_id);
 
@@ -38,7 +40,8 @@ CREATE TABLE IF NOT EXISTS bronze.customers (
     customer_state TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_customers_snapshot ON bronze.customers(_snapshot_id);
 
@@ -54,7 +57,8 @@ CREATE TABLE IF NOT EXISTS bronze.products (
     product_width_cm TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_products_snapshot ON bronze.products(_snapshot_id);
 
@@ -65,7 +69,8 @@ CREATE TABLE IF NOT EXISTS bronze.sellers (
     seller_state TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_sellers_snapshot ON bronze.sellers(_snapshot_id);
 
@@ -79,7 +84,8 @@ CREATE TABLE IF NOT EXISTS bronze.order_reviews (
     review_answer_timestamp TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_order_reviews_snapshot ON bronze.order_reviews(_snapshot_id);
 
@@ -91,7 +97,8 @@ CREATE TABLE IF NOT EXISTS bronze.order_payments (
     payment_value TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_order_payments_snapshot ON bronze.order_payments(_snapshot_id);
 
@@ -103,7 +110,8 @@ CREATE TABLE IF NOT EXISTS bronze.geolocation (
     geolocation_state TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_geolocation_snapshot ON bronze.geolocation(_snapshot_id);
 
@@ -112,6 +120,16 @@ CREATE TABLE IF NOT EXISTS bronze.product_category_name_translation (
     product_category_name_english TEXT,
     _snapshot_id TEXT,
     _run_id UUID,
-    _inserted_at TIMESTAMP DEFAULT NOW()
+    _inserted_at TIMESTAMPTZ DEFAULT NOW(),
+    _source_file TEXT
 );
 CREATE INDEX idx_bronze_prod_cat_translation_snapshot ON bronze.product_category_name_translation(_snapshot_id);
+
+-- Comments for the schema
+COMMENT ON SCHEMA bronze IS 'Raw data layer - all columns are stored as TEXT to prevent load failures. No transformations applied.';
+
+-- Comments for the metadata columns (same for all tables)
+COMMENT ON COLUMN bronze.orders._snapshot_id IS 'Hash-based identifier linking rows to their source data snapshot';
+COMMENT ON COLUMN bronze.orders._run_id IS 'References ingestion.runs for pipeline execution tracking';
+COMMENT ON COLUMN bronze.orders._inserted_at IS 'Timestamp when row was loaded into bronze';
+COMMENT ON COLUMN bronze.orders._source_file IS 'Original CSV filename this row was loaded from';

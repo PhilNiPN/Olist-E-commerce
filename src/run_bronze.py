@@ -41,7 +41,7 @@ def main():
         logger.error('pipeline_failed', extra={
             'error': str(e),
             'error_type': type(e).__name__,
-        })
+        }, exc_info=True)
         sys.exit(1) # this will tell orchestrators(i.e. docker, airflow, etc) that the pipeline failed
 
 if __name__ == "__main__":

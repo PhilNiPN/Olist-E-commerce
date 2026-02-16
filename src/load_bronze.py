@@ -10,6 +10,7 @@ from typing import List
 
 from config import RAW_DIR, FILE_TO_TABLE, manifest_path, latest_manifest_path
 from db import get_db_connection, load_csv_via_temp_table, LoadResult, health_check
+from quality_bronze import run_quality_checks, persist_quality_results
 
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,38 @@ def _register_run(conn, run_id: str, snapshot_id: str):
         )
     conn.commit()
 
-def _complete_run(conn, run_id: str, status: str):
+def _complete_run(conn, run_id: str, status: str, error_message: str = None):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE ingestion.runs 
+            SET status = %s, end_time = NOW(), error_message = %s 
+            WHERE run_id = %s
+            """,
+            (status, error_message, run_id)
+        )
+    conn.commit()
+
+def _register_file_load(conn, run_id: str, file_name: str):
+    """ record a pending file load. """
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ingestion.runs SET status = %s, end_time = NOW() WHERE run_id = %s",
-            (status, run_id)
+            """
+            INSERT INTO ingestion.file_loads (run_id, filename, status)
+            VALUES (%s, %s, 'pending')
+            ON CONFLICT (run_id, filename) DO NOTHING
+            """, (run_id, file_name)
+        )
+    conn.commit()
+
+def _complete_file_load(conn, run_id: str, file_name: str, status: str, rows_inserted: int = 0, message: str = None):
+    """ update file load status after attempt. """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE ingestion.file_loads
+            SET status = %s, rows_inserted = %s, message = %s, updated_at = NOW()
+            WHERE run_id = %s AND filename = %s
+            """, (status, rows_inserted, message, run_id, file_name)
         )
     conn.commit()
 
@@ -103,36 +131,54 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
     with get_db_connection() as conn:
         _register_run(conn, run_id, snapshot_id)
 
-        for filename, table_name in FILE_TO_TABLE.items():
-            filepath = RAW_DIR / filename
-            if not filepath.exists():
-                logger.warning('file_missing', extra= {'filepath': str(filepath)})
+        for file_name, table_name in FILE_TO_TABLE.items():
+            file_path = RAW_DIR / file_name
+            if not file_path.exists():
+                logger.warning('file_missing', extra= {'filepath': str(file_path)})
                 continue
 
             # hash check
-            file_meta = file_hashes.get(filename)
-            if file_meta and not _file_changed(conn, filename, file_meta['hash']):
-                logger.info('file_skipped', extra = {'filename': filename, 'reason': 'hash_unchanged'})
+            file_meta = file_hashes.get(file_name)
+            if file_meta and not _file_changed(conn, file_name, file_meta['hash']):
+                logger.info('file_skipped', extra = {'file_name': file_name, 'reason': 'hash_unchanged'})
                 continue
             
+            _register_file_load(conn, run_id, file_name)
             # this try/except will catch the exception, log it, and not stop the if loop.
             try:
-                result = load_csv_via_temp_table(conn, str(filepath), table_name, snapshot_id, run_id)
+                result = load_csv_via_temp_table(conn, str(file_path), table_name, snapshot_id, run_id, file_name)
                 results.append(result)
                 logger.info('table_loaded', extra= {'table': table_name, 'rows_inserted':result.rows_inserted})
 
                 # record file manifest in database
                 if file_meta:
-                    _record_file_manifest(
-                        conn, snapshot_id, filename, file_meta['hash'], file_meta['size'], result.rows_inserted
-                    )
+                    _record_file_manifest(conn, snapshot_id, file_name, file_meta['hash'], file_meta['size'], result.rows_inserted)
+                
+                # run quality checks
+                dq_results = run_quality_checks(conn, table_name, snapshot_id, result.rows_inserted)
+                persist_quality_results(conn, run_id, dq_results)
+                
+                failed_checks = [r for r in dq_results if not r.passed]
+                if failed_checks:
+                    logger.warning('dq_checks_failed', extra = {
+                        'table': table_name,
+                        'failed': [r.check_name for r in failed_checks],
+                    })
+                    
+                _complete_file_load(conn, run_id, file_name, 'loaded', result.rows_inserted)
+
             except Exception as e:
                 failed_tables.append(table_name)
-                logger.error('table_load_failed', extra={'table': table_name, 'error': str(e)})
+                logger.error('table_load_failed', extra = {
+                    'table': table_name,
+                    'error': str(e),
+                }, exc_info=True)
+                _complete_file_load(conn, run_id, file_name, 'failed', message = str(e))
                 # continue loading remaining tables
                 
         run_status = 'failed' if failed_tables else 'success'
-        _complete_run(conn, run_id, run_status)
+        error_msg = f"failed tables: {failed_tables}" if failed_tables else None
+        _complete_run(conn, run_id, run_status, error_msg)
 
         if failed_tables:
             logger.error('run_completed_with_failures', extra={

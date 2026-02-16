@@ -112,7 +112,7 @@ ALLOWED_TABLES = {
     'product_category_name_translation'
 }
 
-METADATA_COLS = ['_snapshot_id', '_run_id', '_inserted_at']
+METADATA_COLS = ['_snapshot_id', '_run_id', '_inserted_at', '_source_file']
 
 
 ##########################################
@@ -173,7 +173,7 @@ def _init_db_pool() -> None:
             "max_conn": max_conn
         })
     except psycopg2.Error as e:
-        logger.error("pool_creation_failed", extra={"error": str(e)})
+        logger.error("pool_creation_failed", extra={"error": str(e)}, exc_info=True)
         raise
 
 def close_pool() -> None:
@@ -217,7 +217,7 @@ def get_db_connection() -> Generator[extensions.connection, None, None]:
         yield conn
     # rollback on error - reset connection state before returning to pool
     except Exception as e:
-        logger.error("transaction_error", extra={"error": str(e)})
+        logger.error("transaction_error", extra={"error": str(e)}, exc_info=True)
         if conn:
             conn.rollback()
         raise DbConnectionError(str(e)) from e
@@ -274,7 +274,7 @@ def _is_alive(conn: extensions.connection) -> bool:
 ############   data loading   ############
 ##########################################
 
-def load_csv_via_temp_table(conn: extensions.connection, csv_path: str, table_name: str, snapshot_id: str, run_id: str) -> LoadResult:
+def load_csv_via_temp_table(conn: extensions.connection, csv_path: str, table_name: str, snapshot_id: str, run_id: str, source_file: str) -> LoadResult:
     """ 
     load a CSV file into a bronze table using a temp table pattern. 
     1. create temp table (matching/inherits target structure).
@@ -343,10 +343,10 @@ def load_csv_via_temp_table(conn: extensions.connection, csv_path: str, table_na
             # insert into target table
             query = sql.SQL("""
             INSERT INTO {} 
-            SELECT *, %s, %s, NOW()
+            SELECT *, %s, %s, NOW(), %s
             FROM {};
             """).format(target_table, tmp_table)
-            cur.execute(query, (snapshot_id, run_id))
+            cur.execute(query, (snapshot_id, run_id, source_file))
 
             # get row count
             query = sql.SQL("SELECT COUNT(*) FROM {};").format(tmp_table)
@@ -375,6 +375,6 @@ def load_csv_via_temp_table(conn: extensions.connection, csv_path: str, table_na
         logger.error("csv_load_failed", extra={
             "table": table_name,
             "error": str(e)
-        })
+        }, exc_info=True)
         conn.rollback()
         raise LoadError(table_name, str(e)) from e
