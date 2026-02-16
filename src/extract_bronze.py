@@ -6,10 +6,11 @@ import json
 import hashlib
 import zipfile
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from kaggle.api.kaggle_api_extended import KaggleApi
 
-from config import KAGGLE_DATASET, RAW_DIR, MANIFEST_DIR, FILE_TO_TABLE, manifest_path, latest_manifest_path 
+from config import KAGGLE_DATASET, RAW_BASE, MANIFEST_DIR, FILE_TO_TABLE, manifest_path, latest_manifest_path, raw_dir
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,11 @@ def _source_changed() -> bool:
     
     return True
 
+def _count_csv_rows(filepath: Path) -> int:
+    """ count data rows in a CSV file (headers excluded). """
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return sum(1 for _ in f) - 1
+
 def extract(force: bool = False) -> dict:
     """ downloads dataset, extracts files and returns manifest. """
     # this try/except will proceed with download rather than failing, even if we cant check
@@ -59,13 +65,14 @@ def extract(force: bool = False) -> dict:
         }, exc_info=True)
         # continue with download
     
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_dir = RAW_BASE / 'tmp'
+    tmp_dir.mkdir(parents=True, exist_ok=True)
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
 
     # download dataset
     api = KaggleApi()
     api.authenticate()
-    api.dataset_download_files(KAGGLE_DATASET, path=RAW_DIR, unzip=False)
+    api.dataset_download_files(KAGGLE_DATASET, path=tmp_dir, unzip=False)
 
     # get the last updated timestamp for the manifest
     try:
@@ -73,17 +80,21 @@ def extract(force: bool = False) -> dict:
         dataset = next((d for d in dataset_list if str(d) == KAGGLE_DATASET), None)
         kaggle_last_updated = str(dataset.lastUpdated) if dataset else None
     except Exception as e: 
-        logger.warning('kaggle_metadata_fecth_failed', extra={'error': str(e)}, exc_info =True)
+        logger.warning('kaggle_metadata_fetch_failed', extra={'error': str(e)}, exc_info =True)
         kaggle_last_updated = None
 
     # hash the zip
-    zip_path = next(RAW_DIR.glob('*.zip'))
+    zip_path = next(tmp_dir.glob('*.zip'))
     snapshot_id = compute_hash(zip_path)[:16]
 
     # extract
+    snapshot_dir = raw_dir(snapshot_id)
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
     with zipfile.ZipFile(zip_path, 'r') as zf:
-        zf.extractall(RAW_DIR)
+        zf.extractall(snapshot_dir)
     zip_path.unlink()
+    tmp_dir.rmdir() # clean up temporary directory
 
     # manifest
     manifest = { 
@@ -91,9 +102,12 @@ def extract(force: bool = False) -> dict:
         'extracted_at': datetime.now(timezone.utc).isoformat(),
         'kaggle_last_updated': kaggle_last_updated,
         'files': [
-            {'filename': f, 'hash': compute_hash(RAW_DIR / f), 'size': (RAW_DIR / f).stat().st_size}
+            {'filename': f, 
+            'hash': compute_hash(snapshot_dir / f), 
+            'size': (snapshot_dir / f).stat().st_size, 
+            'row_count': _count_csv_rows(snapshot_dir / f)}
             for f in FILE_TO_TABLE.keys()
-            if (RAW_DIR / f).exists()
+            if (snapshot_dir / f).exists()
         ],
     }
 

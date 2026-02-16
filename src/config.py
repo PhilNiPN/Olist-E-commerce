@@ -4,8 +4,12 @@ from pathlib import Path
 
 # Paths
 DATA_DIR = Path("Data")
-RAW_DIR = DATA_DIR / "raw"
+RAW_BASE = DATA_DIR / "raw"
 MANIFEST_DIR = DATA_DIR / "manifest"
+
+def raw_dir(snapshot_id: str) -> Path:
+    """ returns snapshot-specific raw data directory. """
+    return RAW_BASE / snapshot_id
 
 # Kaggle dataset
 KAGGLE_DATASET = "olistbr/brazilian-ecommerce"

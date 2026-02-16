@@ -29,8 +29,16 @@ PRIMARY_KEYS = {
     "product_category_name_translation": ["product_category_name"],
 }
 
-def check_row_count(conn: extensions.connection, table_name: str, snapshot_id: str, expected_rows: int) -> QualityResult:
+def check_row_count(conn: extensions.connection, table_name: str, snapshot_id: str, expected_rows: int | None) -> QualityResult:
     """ check if the row count matches the expected value from manifest. """
+    if expected_rows is None:
+        return QualityResult(
+            table = table_name,
+            check_name = 'row_count',
+            passed = True,
+            details = {'skipped': True, 'reason': 'no manifest row count'},
+        )
+
     target = sql.Identifier('bronze', table_name)
     with conn.cursor() as cur:
         cur.execute(
@@ -151,7 +159,7 @@ def check_schema(conn: extensions.connection, table_name: str) -> QualityResult:
         )
     return result
 
-def run_quality_checks(conn: extensions.connection, table_name: str, snapshot_id: str, expected_rows: int) -> list[QualityResult]:
+def run_quality_checks(conn: extensions.connection, table_name: str, snapshot_id: str, expected_rows: int | None) -> list[QualityResult]:
     """ run all bronze layer quality checks for a table and persist results. """
     results = []
     results.append(check_not_empty(conn, table_name, snapshot_id))

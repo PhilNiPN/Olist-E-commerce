@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import List
 
-from config import RAW_DIR, FILE_TO_TABLE, manifest_path, latest_manifest_path
+from config import FILE_TO_TABLE, manifest_path, latest_manifest_path, raw_dir
 from db import get_db_connection, load_csv_via_temp_table, LoadResult, health_check
 from quality_bronze import run_quality_checks, persist_quality_results
 
@@ -116,6 +116,8 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
         else:
             raise FileNotFoundError(f"No manifest found for snapshot: {snapshot_id}")
     
+    snapshot_raw_dir = raw_dir(snapshot_id)
+
     # build a hash lookup for the files in the manifest
     file_hashes = {f['filename']: f for f in manifest['files']}
     
@@ -132,7 +134,7 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
         _register_run(conn, run_id, snapshot_id)
 
         for file_name, table_name in FILE_TO_TABLE.items():
-            file_path = RAW_DIR / file_name
+            file_path = snapshot_raw_dir / file_name
             if not file_path.exists():
                 logger.warning('file_missing', extra= {'filepath': str(file_path)})
                 continue
@@ -155,7 +157,8 @@ def load(snapshot_id: str = None, run_id: str = None) -> LoadSummary:
                     _record_file_manifest(conn, snapshot_id, file_name, file_meta['hash'], file_meta['size'], result.rows_inserted)
                 
                 # run quality checks
-                dq_results = run_quality_checks(conn, table_name, snapshot_id, result.rows_inserted)
+                manifest_row_count = file_meta.get('row_count') if file_meta else None
+                dq_results = run_quality_checks(conn, table_name, snapshot_id, manifest_row_count)
                 persist_quality_results(conn, run_id, dq_results)
                 
                 failed_checks = [r for r in dq_results if not r.passed]
