@@ -214,6 +214,6 @@ docker-compose logs -f pipeline
 
 
 ## 8) Roadmap
-- [ ] Unit tests
+- [ ✅ ] Unit tests
 - [ ] Silver layer (cleaning, typing, deduplication)
 - [ ] Gold layer (business-level aggregates)
