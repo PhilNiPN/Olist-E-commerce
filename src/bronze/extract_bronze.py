@@ -6,6 +6,7 @@ import json
 import hashlib
 import zipfile
 import logging
+import csv
 from pathlib import Path
 from datetime import datetime, timezone
 from kaggle.api.kaggle_api_extended import KaggleApi
@@ -47,9 +48,11 @@ def _source_changed() -> bool:
     return True
 
 def _count_csv_rows(filepath: Path) -> int:
-    """ count data rows in a CSV file (headers excluded). """
+    """count data rows in a CSV file (headers excluded)."""
     with open(filepath, 'r', encoding='utf-8') as f:
-        return sum(1 for _ in f) - 1
+        reader = csv.reader(f)
+        next(reader)  # skip header
+        return sum(1 for _ in reader)
 
 def extract(force: bool = False) -> dict:
     """ downloads dataset, extracts files and returns manifest. """
